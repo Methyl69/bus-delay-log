@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bus delay log</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:#EEF1F4; --card:#FFFFFF; --ink:#14213D; --muted:#5B6578; --line:#D9DEE6;
+    --board:#FFC83D; --board-ink:#14213D; --good:#1F9D63; --warn:#D99A00; --bad:#D64545;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#0F1623; --card:#182235; --ink:#E8ECF4; --muted:#9AA6BC; --line:#2A3650; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.5 Archivo, system-ui, sans-serif; }
+  .wrap { max-width:1040px; margin:0 auto; padding:32px 20px 56px; }
+  h1 { font-size:1.75rem; font-weight:800; margin:0; letter-spacing:-.01em; }
+  .lede { color:var(--muted); margin:4px 0 28px; max-width:56ch; }
+  h2 { font-size:.95rem; font-weight:600; margin:0 0 12px; color:var(--muted); }
+  .grid { display:grid; grid-template-columns:300px 1fr; gap:24px; align-items:start; }
+  @media (max-width:860px) { .grid { grid-template-columns:1fr; } }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:20px; }
+  .stack > * + * { margin-top:20px; }
+
+  /* form */
+  form { display:grid; gap:14px; }
+  label { display:grid; gap:4px; font-size:.85rem; color:var(--muted); }
+  input, select { font:inherit; color:var(--ink); background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:10px 12px; width:100%; }
+  input:focus-visible, select:focus-visible, button:focus-visible { outline:2px solid var(--ink); outline-offset:2px; }
+  .two { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  .preview { min-height:1.5em; font-weight:600; }
+  .preview.late { color:var(--bad); } .preview.early, .preview.ok { color:var(--good); }
+  .err { color:var(--bad); font-size:.85rem; min-height:1.2em; }
+  .primary { font:inherit; font-weight:800; background:var(--board); color:var(--board-ink); border:0; border-radius:8px; padding:12px; cursor:pointer; }
+  .primary:active { transform:translateY(1px); }
+  .ghost { font:inherit; font-weight:600; background:none; color:var(--ink); border:1px solid var(--line); border-radius:8px; padding:10px; cursor:pointer; }
+  .ghost:hover { border-color:var(--ink); }
+  .trip.busrow { grid-template-columns:56px 1fr 32px; }
+
+  /* route chips */
+  .chips { display:flex; flex-wrap:wrap; gap:8px; }
+  .chip { font:inherit; font-weight:600; background:var(--card); color:var(--ink); border:1px solid var(--line); border-radius:999px; padding:6px 14px; cursor:pointer; }
+  .chip[aria-pressed="true"] { background:var(--ink); color:var(--card); border-color:var(--ink); }
+
+  /* destination board */
+  .board { background:var(--board); color:var(--board-ink); border-radius:12px; padding:24px; }
+  .board small { font-weight:600; font-size:.9rem; }
+  .board .big { font-size:clamp(2rem,6vw,3.25rem); font-weight:800; line-height:1.1; margin:6px 0 8px; letter-spacing:-.02em; }
+  .board p { margin:0; font-weight:600; }
+
+  .stats { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; }
+  .stat b { display:block; font-size:1.6rem; font-weight:800; line-height:1.2; }
+  .stat span { color:var(--muted); font-size:.85rem; }
+
+  /* hour chart */
+  .bars { display:flex; align-items:flex-end; gap:4px; height:150px; }
+  .bar { flex:1; display:flex; flex-direction:column; justify-content:flex-end; align-items:center; height:100%; min-width:0; }
+  .bar i { display:block; width:100%; border-radius:4px 4px 0 0; min-height:2px; }
+  .bar em { font-style:normal; font-size:.7rem; color:var(--muted); margin-bottom:2px; }
+  .axis { display:flex; gap:4px; margin-top:6px; }
+  .axis span { flex:1; text-align:center; font-size:.7rem; color:var(--muted); min-width:0; }
+  .empty { color:var(--muted); }
+
+  .cols { display:grid; grid-template-columns:1fr 1fr; gap:20px; }
+  @media (max-width:560px) { .cols { grid-template-columns:1fr; } }
+  ul { list-style:none; margin:0; padding:0; }
+  .win { display:flex; justify-content:space-between; gap:12px; padding:10px 0; border-bottom:1px solid var(--line); }
+  .win:last-child { border-bottom:0; }
+  .win span { color:var(--muted); font-size:.85rem; }
+
+  /* trips */
+  .trip { display:grid; grid-template-columns:56px 1fr auto 32px; gap:12px; align-items:center; padding:10px 0; border-bottom:1px solid var(--line); }
+  .trip:last-child { border-bottom:0; }
+  .tag { background:var(--ink); color:var(--card); font-weight:800; text-align:center; border-radius:6px; padding:2px 0; font-size:.9rem; }
+  .trip small { display:block; color:var(--muted); }
+  .late { color:var(--bad); } .early, .ok { color:var(--good); }
+  .del { font:inherit; background:none; border:0; color:var(--muted); cursor:pointer; font-size:1.2rem; border-radius:6px; }
+  .del:hover { color:var(--bad); }
+  .link { font:inherit; font-size:.85rem; color:var(--muted); background:none; border:0; padding:0; cursor:pointer; text-decoration:underline; }
+  @media (prefers-reduced-motion: no-preference) { .bar i { transition:height .25s ease; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Bus delay log</h1>
+  <p class="lede">Log every bus you catch. After a few trips you will see your average delay and the times of day your bus runs closest to schedule.</p>
+
+  <div class="grid">
+    <aside class="stack">
+      <form class="card" id="busform" autocomplete="off">
+        <h2>My buses</h2>
+        <label>Route number <input id="bnum" required maxlength="10" placeholder="138"></label>
+        <label>Path <input id="bpath" maxlength="60" placeholder="Pettah to Homagama"></label>
+        <div class="err" id="berr" role="alert"></div>
+        <button class="ghost" type="submit">Add bus</button>
+        <ul id="buslist"></ul>
+      </form>
+      <form class="card" id="form" autocomplete="off">
+        <h2>Add a trip</h2>
+        <label>Bus <select id="bus" required></select></label>
+        <label>Date <input id="date" type="date" required></label>
+        <div class="two">
+          <label>Scheduled <input id="sched" type="time" required></label>
+          <label>Arrived <input id="actual" type="time" required></label>
+        </div>
+        <div class="preview" id="preview" aria-live="polite"></div>
+        <div class="err" id="err" role="alert"></div>
+        <button class="primary" type="submit">Add trip</button>
+      </form>
+      <div class="card"><button class="link" id="clear">Delete all trips</button></div>
+    </aside>
+
+    <section class="stack" id="out"></section>
+  </div>
+</div>
+
+<script>
+const KEY = "bus-log-v2", OLD_KEY = "bus-trips-v1";
+const $ = (id) => document.getElementById(id);
+const esc = (s) => s.replace(/[&<>"']/g, (c) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c]));
+const ON_TIME = 5;
+
+let { buses, trips } = load();
+let current = "all";   // "all" or a bus id
+
+function load() {
+  try {
+    const d = JSON.parse(localStorage.getItem(KEY));
+    if (d) return { buses: d.buses || [], trips: d.trips || [] };
+    const old = JSON.parse(localStorage.getItem(OLD_KEY)) || [];   // migrate trips saved by the first version
+    const migrated = [...new Set(old.map((t) => t.route))].map((num) => ({ id: "b" + num, num, path: "" }));
+    return { buses: migrated, trips: old.map((t) => ({ ...t, busId: "b" + t.route })) };
+  } catch { return { buses: [], trips: [] }; }
+}
+function save() { try { localStorage.setItem(KEY, JSON.stringify({ buses, trips })); } catch {} }
+const busOf = (id) => buses.find((b) => b.id === id);
+const busName = (b) => (b.path ? `${b.num}, ${b.path}` : b.num);
+const chipsHtml = () => `<div class="chips" role="group" aria-label="Filter by bus">${[{ id: "all" }, ...buses].map((b) =>
+  `<button class="chip" data-bus="${b.id}" aria-pressed="${b.id === current}">${b.id === "all" ? "All buses" : esc(busName(b))}</button>`).join("")}</div>`;
+
+const toMin = (t) => { const [h, m] = t.split(":").map(Number); return h * 60 + m; };
+function delayOf(sched, actual) {
+  let d = toMin(actual) - toMin(sched);
+  if (d < -720) d += 1440;   // arrived after midnight
+  if (d > 720) d -= 1440;
+  return d;
+}
+const mean = (a) => a.reduce((x, y) => x + y, 0) / a.length;
+const hourLabel = (h) => `${((h + 11) % 12) + 1} ${h % 24 < 12 ? "am" : "pm"}`;
+const rangeLabel = (w) => `${hourLabel(w.s)} to ${hourLabel(w.e)}`;
+const delayText = (d) => { d = Math.round(d); return d > 0 ? `${d} min late` : d < 0 ? `${-d} min early` : "on time"; };
+const delayClass = (d) => (Math.round(d) > ON_TIME ? "late" : Math.round(d) < 0 ? "early" : "ok");
+
+/* Best and worst windows: try 2-hour windows (3+ trips), fall back to 1-hour (2+ trips). */
+function rank(list, dir) {
+  const byHour = {};
+  list.forEach((t) => (byHour[t.hour] ??= []).push(t.delay));
+  let found = [];
+  for (const [w, min] of [[2, 3], [1, 2]]) {
+    for (let s = 0; s <= 24 - w; s++) {
+      const ds = [];
+      let ok = true;
+      for (let h = s; h < s + w; h++) { if (!byHour[h]) { ok = false; break; } ds.push(...byHour[h]); }
+      if (ok && ds.length >= min) found.push({ s, e: s + w, n: ds.length, avg: mean(ds), ont: ds.filter((d) => d <= ON_TIME).length / ds.length });
+    }
+    if (found.length) break;
+  }
+  found.sort((a, b) => dir * (a.avg - b.avg) || b.n - a.n);
+  const picked = [];
+  for (const c of found) {
+    if (picked.every((p) => c.e <= p.s || c.s >= p.e)) picked.push(c);
+    if (picked.length === 3) break;
+  }
+  return picked;
+}
+
+function render(select) {
+  if (current !== "all" && !busOf(current)) current = "all";
+  const prev = $("bus").value;
+  const want = busOf(select) ? select : prev;
+  $("bus").innerHTML = buses.length
+    ? buses.map((b) => `<option value="${b.id}">${esc(busName(b))}</option>`).join("")
+    : `<option value="">Add a bus first</option>`;
+  $("bus").value = busOf(want) ? want : buses.length ? buses[0].id : "";
+
+  $("buslist").innerHTML = buses.map((b) => {
+    const n = trips.filter((t) => t.busId === b.id).length;
+    return `<li class="trip busrow"><span class="tag">${esc(b.num)}</span><span>${esc(b.path || "No path name")}<small>${n} ${n === 1 ? "trip" : "trips"}</small></span><button type="button" class="del" data-bus="${b.id}" aria-label="Delete bus ${esc(b.num)}">&times;</button></li>`;
+  }).join("");
+
+  const out = $("out");
+  const list = current === "all" ? trips : trips.filter((t) => t.busId === current);
+  if (!list.length) {
+    const msg = !buses.length ? ["No buses yet", "Start by adding a bus on the left: its route number and the path it runs, like Pettah to Homagama."]
+      : !trips.length ? ["No trips yet", "Add your first trip on the left. Three trips around the same time of day are enough for a first estimate."]
+      : ["No trips for this bus yet", "Log a trip for it on the left."];
+    out.innerHTML = `${buses.length ? chipsHtml() : ""}<div class="board"><small>Best time to catch your bus</small><div class="big">${msg[0]}</div><p>${msg[1]}</p></div>`;
+    return;
+  }
+  const avg = mean(list.map((t) => t.delay));
+  const onTime = Math.round((100 * list.filter((t) => t.delay <= ON_TIME).length) / list.length);
+  const best = rank(list, 1);
+  const worst = rank(list, -1).filter((w) => !best[0] || w.e <= best[0].s || w.s >= best[0].e);
+  const scope = current === "all" ? "any bus" : `route ${esc(busName(busOf(current)))}`;
+
+  const hero = best.length
+    ? `<small>Best time to catch ${scope}</small><div class="big">${rangeLabel(best[0])}</div><p>${delayText(best[0].avg)} on average, ${Math.round(best[0].ont * 100)}% on time, from ${best[0].n} trips</p>`
+    : `<small>Best time to catch ${scope}</small><div class="big">Not enough trips yet</div><p>Log 3 trips within the same two hours of the day to see a best time.</p>`;
+
+  const hours = Array.from({ length: 18 }, (_, i) => i + 5);
+  const avgs = hours.map((h) => { const d = list.filter((t) => t.hour === h).map((t) => t.delay); return d.length ? mean(d) : null; });
+  const top = Math.max(10, ...avgs.map((v) => v ?? 0));
+  const bars = hours.map((h, i) => {
+    const v = avgs[i];
+    if (v === null) return `<div class="bar" title="${hourLabel(h)}: no trips"><i style="height:2px;background:var(--line)"></i></div>`;
+    const color = v <= ON_TIME ? "var(--good)" : v <= 12 ? "var(--warn)" : "var(--bad)";
+    const hgt = Math.max(2, (Math.max(v, 0) / top) * 118);
+    return `<div class="bar" title="${hourLabel(h)}: ${delayText(v)}"><em>${Math.round(v)}</em><i style="height:${hgt}px;background:${color}"></i></div>`;
+  }).join("");
+  const axis = hours.map((h) => `<span>${h % 3 === 0 ? hourLabel(h).replace(" ", "") : ""}</span>`).join("");
+
+  const win = (w) => `<li class="win"><b>${rangeLabel(w)}</b><span>${delayText(w.avg)}, ${w.n} trips</span></li>`;
+  const alsoGood = best.slice(1).map(win).join("") || `<li class="empty">More trips will fill this in.</li>`;
+  const avoid = worst.map(win).join("") || `<li class="empty">More trips will fill this in.</li>`;
+
+  const recent = [...list].sort((a, b) => b.ts - a.ts).slice(0, 8).map((t) => {
+    const b = busOf(t.busId) || { num: t.route, path: "" };
+    const d = new Date(t.date + "T00:00").toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
+    return `<li class="trip"><span class="tag">${esc(b.num)}</span><span>${d}<small>${b.path ? esc(b.path) + ", " : ""}scheduled ${t.sched}</small></span><b class="${delayClass(t.delay)}">${delayText(t.delay)}</b><button class="del" data-id="${t.id}" aria-label="Delete trip">&times;</button></li>`;
+  }).join("");
+
+  out.innerHTML = `
+    ${chipsHtml()}
+    <div class="board">${hero}</div>
+    <div class="card stats">
+      <div class="stat"><b>${delayText(avg)}</b><span>Average</span></div>
+      <div class="stat"><b>${onTime}%</b><span>Within ${ON_TIME} min</span></div>
+      <div class="stat"><b>${list.length}</b><span>Trips logged</span></div>
+    </div>
+    <div class="card"><h2>Average delay by hour (minutes)</h2><div class="bars">${bars}</div><div class="axis">${axis}</div></div>
+    <div class="cols">
+      <div class="card"><h2>Also good</h2><ul>${alsoGood}</ul></div>
+      <div class="card"><h2>Times to avoid</h2><ul>${avoid}</ul></div>
+    </div>
+    <div class="card"><h2>Recent trips</h2><ul>${recent}</ul></div>`;
+}
+
+/* events */
+$("out").addEventListener("click", (e) => {
+  const chip = e.target.closest(".chip");
+  if (chip) { current = chip.dataset.bus; render(current); return; }
+  const del = e.target.closest(".del");
+  if (del) { trips = trips.filter((t) => String(t.id) !== del.dataset.id); save(); render(); }
+});
+
+function updatePreview() {
+  const s = $("sched").value, a = $("actual").value, p = $("preview");
+  if (!s || !a) { p.textContent = ""; p.className = "preview"; return; }
+  const d = delayOf(s, a);
+  p.textContent = delayText(d);
+  p.className = "preview " + delayClass(d);
+}
+["sched", "actual"].forEach((id) => $(id).addEventListener("input", updatePreview));
+
+$("form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const busId = $("bus").value, b = busOf(busId);
+  if (!b) { $("err").textContent = "Add a bus first."; return; }
+  const sched = $("sched").value, actual = $("actual").value, date = $("date").value;
+  const delay = delayOf(sched, actual);
+  if (Math.abs(delay) > 240) { $("err").textContent = "That is more than 4 hours apart. Check the two times."; return; }
+  $("err").textContent = "";
+  trips.push({ id: Date.now(), ts: new Date(`${date}T${sched}`).getTime(), busId, route: b.num, date, sched, delay, hour: Number(sched.slice(0, 2)) });
+  save();
+  current = busId;
+  $("sched").value = ""; $("actual").value = ""; updatePreview();
+  render();
+  $("sched").focus();
+});
+
+$("busform").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const num = $("bnum").value.trim().toUpperCase(), path = $("bpath").value.trim();
+  if (buses.some((b) => b.num === num && b.path.toLowerCase() === path.toLowerCase())) { $("berr").textContent = "That bus is already in your list."; return; }
+  $("berr").textContent = "";
+  const b = { id: "b" + Date.now(), num, path };
+  buses.push(b);
+  save();
+  $("bnum").value = ""; $("bpath").value = "";
+  render(b.id);
+  $("bnum").focus();
+});
+
+$("buslist").addEventListener("click", (e) => {
+  const del = e.target.closest(".del");
+  if (!del) return;
+  const id = del.dataset.bus, n = trips.filter((t) => t.busId === id).length;
+  if (n && !confirm(`Delete this bus and its ${n} logged trips?`)) return;
+  buses = buses.filter((b) => b.id !== id);
+  trips = trips.filter((t) => t.busId !== id);
+  save();
+  render();
+});
+
+$("clear").addEventListener("click", () => {
+  if (trips.length && confirm("Delete all logged trips from this browser?")) { trips = []; save(); render(); }
+});
+
+const today = new Date(); today.setMinutes(today.getMinutes() - today.getTimezoneOffset());
+$("date").value = today.toISOString().slice(0, 10);
+$("date").max = $("date").value;
+render();
+</script>
+</body>
+</html>
